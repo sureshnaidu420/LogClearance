@@ -1,0 +1,69 @@
+Write-Host "Script started..."
+
+# Get all available drives and search for ProPhoenix directories that contain "_Instances"
+$proPhoenixBasePaths = Get-PSDrive -PSProvider FileSystem | ForEach-Object {
+    "$($_.Root)\Program Files\ProPhoenix"
+} | Where-Object { Test-Path -Path $_ }
+
+Write-Host "Searching for '_Instances' folders..."
+
+# Get all folders within each ProPhoenix directory that contain an "_Instances" folder
+$instanceFolders = foreach ($basePath in $proPhoenixBasePaths) {
+    Get-ChildItem -Path $basePath -Directory -Recurse | Where-Object {
+        Test-Path -Path "$($_.FullName)\_Instances"
+    }
+}
+
+# If no folders with "_Instances" are found, display a message and exit
+if ($instanceFolders.Count -eq 0) {
+    Write-Host "No folders with '_Instances' found in any drive."
+    exit
+}
+
+# Define the possible environment types
+$environmentTypes = @("Test", "Live", "Training")
+
+Write-Host "Processing folders with '_Instances'..."
+
+# Iterate through each folder with an "_Instances" subfolder
+foreach ($folder in $instanceFolders) {
+    # Process each environment type (Test, Live, Training)
+    foreach ($environmentType in $environmentTypes) {
+        # Construct the path based on the environment type
+        $targetPath = "$($folder.FullName)\_Instances\$environmentType\PnxLog"
+        $oldFolderPath = "$targetPath\old"
+
+        # Check if the target path exists for the specified environment type
+        if (Test-Path -Path $targetPath) {
+            
+            # Check if "old" folder exists; if not, create it
+            if (!(Test-Path -Path $oldFolderPath)) {
+                New-Item -ItemType Directory -Path $oldFolderPath
+            }
+
+            # Get all files in the target folder, excluding the "old" folder itself
+            $filesToMove = Get-ChildItem -Path $targetPath -File | Where-Object { $_.FullName -notlike "$oldFolderPath*" }
+
+            # Only proceed if there are files outside the "old" folder
+            if ($filesToMove.Count -gt 0) {
+                # Clear all existing files from the "old" folder
+                Get-ChildItem -Path $oldFolderPath -File | Remove-Item -Force
+
+                # Move files outside "old" into "old" folder
+                foreach ($file in $filesToMove) {
+                    Move-Item -Path $file.FullName -Destination $oldFolderPath
+                }
+
+                Write-Host "Processed '$environmentType' environment in folder: $targetPath"
+            }
+            else {
+                Write-Host "No files outside 'old' folder in: $targetPath"
+            }
+        }
+        else {
+            Write-Host "'$environmentType' environment folder not found in: $($folder.FullName)\_Instances"
+        }
+    }
+}
+
+Write-Host "Script completed."
